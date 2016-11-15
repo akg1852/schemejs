@@ -136,6 +136,7 @@ scheme.apply = function(proc, args) {
 }
 
 scheme.env = new scheme.cell({
+    'load': new scheme.primitive(function(args) { scheme.load(args.car); }),
     'display': new scheme.primitive(function(args) {
         console.log(scheme.display(args.car)); }),
     'boolean?': new scheme.primitive(function(args) { return typeof args.car === 'boolean'; }),
@@ -159,16 +160,30 @@ scheme.env = new scheme.cell({
         return scheme.display(args.car) === scheme.display(args.cdr.car); }),
 }, null);
 
+scheme.load = function(file, callback) {
+    require('fs').readFile(file,'utf-8', function(err, data) {
+        if (err) console.error('error loading file: ' + file);
+        else {
+            scheme.reader(data).forEach(function(expr) {
+                scheme.eval(expr, scheme.env);
+            });
+        }
+        if (callback) callback();
+    });
+};
 
 // repl
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', function (data) {
-    try {
-        scheme.reader(data).forEach(function(expr) {
-            var result = scheme.eval(expr, scheme.env);
-            var print = scheme.display(result);
-            if (print !== undefined) console.log(print);
-        });
-    }
-    catch (e) { console.error(e); }
+scheme.load('lib.scm', function () {
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', function (data) {
+        try {
+            scheme.reader(data).forEach(function(expr) {
+                var result = scheme.eval(expr, scheme.env);
+                var print = scheme.display(result);
+                if (print !== undefined) console.log(print);
+            });
+        }
+        catch (e) { console.error(e); }
+    });
 });
+
