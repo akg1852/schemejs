@@ -19,6 +19,10 @@ scheme.plus = function (args) {
 scheme.reader = function(data) {
     function buildAST(tokens) {
         var token = tokens.shift();
+        if (token === '\'') {
+            return new scheme.cell(new scheme.symbol('quote'),
+                new scheme.cell(buildAST(tokens), null));
+        }
         if (token === undefined) throw 'unexpected end of input expression';
         else if (token === '(') {
             var list = new scheme.cell(null, null), cell = list;
@@ -44,9 +48,9 @@ scheme.reader = function(data) {
             throw 'invalid token: ' + token;
         }
     };
-
-    var tokens = data.match(/(?:\(|\)|[^\(\)\s]+)/g) || [];
-    return buildAST(tokens);
+    var tokens = data.match(/(?:\(|\)|'|[^\(\)'\s]+)/g) || [], exprs = [];
+    while (tokens.length) exprs.push(buildAST(tokens));
+    return exprs;
 };
 
 scheme.display = function(expr) {
@@ -60,6 +64,7 @@ scheme.display = function(expr) {
         return listDisplay + ')';
     }
     else {
+        if (expr === null) return '()';
         if (expr === true) return '#t';
         if (expr === false) return '#f';
         if (typeof expr === 'string') return '"' + expr + '"';
@@ -83,10 +88,15 @@ scheme.eval = function(expr, env) {
                 return new scheme.lambda(params, body, env);
             }
             if (symbol === 'if') {
-                // todo: if
+                if (scheme.eval(expr.cdr.car, env))
+                    return scheme.eval(expr.cdr.cdr.car, env);
+                if (expr.cdr.cdr.cdr !== null)
+                    return scheme.eval(expr.cdr.cdr.cdr.car, env);
+                return undefined;
             }
             if (symbol === 'define') {
-                // todo: define
+                env.car[expr.cdr.car.name] = scheme.eval(expr.cdr.cdr.car, env);
+                return undefined;
             }
         }
         return scheme.apply(scheme.eval(expr.car, env),
@@ -115,13 +125,27 @@ scheme.apply = function(proc, args) {
             env[params.car.name] = args.car;
             params = params.cdr; args = args.cdr;
         }
-        return scheme.eval(proc.body.car, new scheme.cell(env, proc.env));
-        // todo: eval the whole proc.body list, and return the result of the final one
+        var body = proc.body, value = undefined;
+        while (body instanceof scheme.cell) {
+            value = scheme.eval(body.car, new scheme.cell(env, proc.env));
+            body = body.cdr;
+        }
+        return value;
     }
-    throw 'not a procedure: ' + proc;
+    throw 'not a procedure: ' + scheme.display(proc);
 }
 
 scheme.env = new scheme.cell({
+    'display': new scheme.primitive(function(args) {
+        console.log(scheme.display(args.car)); }),
+    'boolean?': new scheme.primitive(function(args) { return typeof args.car === 'boolean'; }),
+    'number?': new scheme.primitive(function(args) { return typeof args.car === 'number'; }),
+    'string?': new scheme.primitive(function(args) { return typeof args.car === 'string'; }),
+    'null?': new scheme.primitive(function(args) { return args.car === null; }),
+    'pair?': new scheme.primitive(function(args) { return args.car instanceof scheme.cell; }),
+    'symbol?': new scheme.primitive(function(args) { return args.car instanceof scheme.symbol; }),
+    'procedure?': new scheme.primitive(function(args) {
+        return args.car instanceof scheme.primitive || args.car instanceof scheme.lambda; }),
     'cons': new scheme.primitive(function(args) {
         return new scheme.cell(args.car, args.cdr.car); }),
     'car': new scheme.primitive(function(args) { return args.car.car; }),
@@ -140,9 +164,11 @@ scheme.env = new scheme.cell({
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', function (data) {
     try {
-        var expr = scheme.reader(data);
-        var result = scheme.eval(expr, scheme.env);
-        console.log(scheme.display(result));
+        scheme.reader(data).forEach(function(expr) {
+            var result = scheme.eval(expr, scheme.env);
+            var print = scheme.display(result);
+            if (print !== undefined) console.log(print);
+        });
     }
     catch (e) { console.error(e); }
 });
