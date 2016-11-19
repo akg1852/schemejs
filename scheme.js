@@ -3,18 +3,8 @@
 var scheme = {};
 scheme.cell = function(car, cdr) { this.car = car; this.cdr = cdr; };
 scheme.symbol = function(name) { this.name = name; };
-scheme.primitive = function(apply) { this.apply = apply; };
 scheme.lambda = function(params, body, env) {
     this.params = params; this.body = body; this.env = env; };
-
-scheme.map = function(func, list) {
-    if (list === null) return null;
-    return new scheme.cell(func(list.car), scheme.map(func, list.cdr));
-};
-
-scheme.plus = function (args) {
-    return args.cdr === null ? args.car : args.car + scheme.plus(args.cdr);
-}
 
 scheme.reader = function(data) {
     function buildAST(tokens) {
@@ -24,9 +14,9 @@ scheme.reader = function(data) {
                 new scheme.cell(buildAST(tokens), null));
         }
         if (token === undefined) throw 'unexpected end of input expression';
-        else if (token === '(') {
+        else if (token === '(' || token === '[') {
             var list = new scheme.cell(null, null), cell = list;
-            while (tokens[0] !== ')') {
+            while (tokens[0] !== ')' && tokens[0] !== ']') {
                 if (tokens[0] === '.') {
                     tokens.shift();
                     cell.cdr = buildAST(tokens);
@@ -36,7 +26,8 @@ scheme.reader = function(data) {
             tokens.shift();
             return list.cdr;
         }
-        else if (token === ')') throw 'unmatched ) encountered in input expression';
+        else if (token === ')' || token === ']')
+            throw 'unmatched ) encountered in input expression';
         else {
             var atom;
             if (token === '#t') return true;
@@ -48,7 +39,8 @@ scheme.reader = function(data) {
             throw 'invalid token: ' + token;
         }
     };
-    var tokens = data.match(/(?:\(|\)|'|[^\(\)'\s]+)/g) || [], exprs = [];
+    data = data.replace(/;[^\r\n]*/g, ''); // remove inline comments
+    var tokens = data.match(/(?:\(|\)|\[|\]|'|[^\(\)\[\]'\s]+)/g) || [], exprs = [];
     while (tokens.length) exprs.push(buildAST(tokens));
     return exprs;
 };
@@ -69,7 +61,7 @@ scheme.display = function(expr) {
         if (expr === false) return '#f';
         if (typeof expr === 'string') return '"' + expr + '"';
         if (expr instanceof scheme.symbol) return expr.name;
-        if (expr instanceof scheme.primitive) return '<primitive procedure>';
+        if (typeof expr === 'function') return '<primitive procedure>';
         if (expr instanceof scheme.lambda)
             return scheme.display(new scheme.cell(new scheme.symbol('lambda'),
                 new scheme.cell(expr.params, expr.body)));
@@ -114,9 +106,7 @@ scheme.eval = function(expr, env) {
 };
 
 scheme.apply = function(proc, args) {
-    if (proc instanceof scheme.primitive) {
-        return proc.apply(args);
-    }
+    if (typeof proc === 'function') return proc(args);
     if (proc instanceof scheme.lambda) {
         var params = proc.params, env = {};
         while (params !== null) {
@@ -135,29 +125,79 @@ scheme.apply = function(proc, args) {
     throw 'not a procedure: ' + scheme.display(proc);
 }
 
+scheme.map = function(func, list) {
+    if (list === null) return null;
+    return new scheme.cell(func(list.car), scheme.map(func, list.cdr));
+};
+
+scheme.fold = function(func, init, list) {
+    if (list === null) return init;
+    return scheme.fold(func, func(init, list.car), list.cdr);
+};
+
+scheme.listToArray = function(list) {
+    var array = [];
+    while (list instanceof scheme.cell) {
+        array.push(list.car);
+        list = list.cdr;
+    }
+    if (list !== null) array.push(list);
+    return array;
+};
+
+scheme.primitive = function(f) {
+    return function(args) {
+        return f.apply(null, scheme.listToArray(args));
+    };
+};
+
 scheme.env = new scheme.cell({
-    'load': new scheme.primitive(function(args) { scheme.load(args.car); }),
-    'display': new scheme.primitive(function(args) {
-        console.log(scheme.display(args.car)); }),
-    'boolean?': new scheme.primitive(function(args) { return typeof args.car === 'boolean'; }),
-    'number?': new scheme.primitive(function(args) { return typeof args.car === 'number'; }),
-    'string?': new scheme.primitive(function(args) { return typeof args.car === 'string'; }),
-    'null?': new scheme.primitive(function(args) { return args.car === null; }),
-    'pair?': new scheme.primitive(function(args) { return args.car instanceof scheme.cell; }),
-    'symbol?': new scheme.primitive(function(args) { return args.car instanceof scheme.symbol; }),
-    'procedure?': new scheme.primitive(function(args) {
-        return args.car instanceof scheme.primitive || args.car instanceof scheme.lambda; }),
-    'cons': new scheme.primitive(function(args) {
-        return new scheme.cell(args.car, args.cdr.car); }),
-    'car': new scheme.primitive(function(args) { return args.car.car; }),
-    'cdr': new scheme.primitive(function(args) { return args.car.cdr; }),
-    '+': new scheme.primitive(scheme.plus),
-    '-': new scheme.primitive(function(args) {
-        return args.cdr === null ? -args.car : args.car - scheme.plus(args.cdr); }),
-    'not': new scheme.primitive(function(args) { return !args.car; }),
-    'string-append': new scheme.primitive(scheme.plus),
-    'equal?': new scheme.primitive(function(args) {
-        return scheme.display(args.car) === scheme.display(args.cdr.car); }),
+    'apply': function(args) {
+        var f = args.car; args = args.cdr;
+        var list = new scheme.cell(null, null), cell = list;
+        while (args.cdr !== null) {
+            cell = cell.cdr = new scheme.cell(args.car, null);
+            args = args.cdr;
+        }
+        cell.cdr = args.car;
+        return scheme.apply(f, list.cdr);
+    },
+    'eval': function(args) { return scheme.eval(args.car, scheme.env); },
+    'load': function(args) { scheme.load(args.car); },
+    'display': function(args) { console.log(scheme.display(args.car)); },
+    'boolean?': function(args) { return typeof args.car === 'boolean'; },
+    'number?': function(args) { return typeof args.car === 'number'; },
+    'string?': function(args) { return typeof args.car === 'string'; },
+    'null?': function(args) { return args.car === null; },
+    'pair?': function(args) { return args.car instanceof scheme.cell; },
+    'symbol?': function(args) { return args.car instanceof scheme.symbol; },
+    'procedure?': function(args) {
+        return args.car instanceof scheme.primitive || args.car instanceof scheme.lambda; },
+    'not': scheme.primitive(function(b) { return !b; }),
+    'string-append': scheme.plus,
+    'equal?': function(args) {
+        return scheme.display(args.car) === scheme.display(args.cdr.car); },
+    'cons': function(args) { return new scheme.cell(args.car, args.cdr.car); },
+    'car': function(args) { return args.car.car; },
+    'cdr': function(args) { return args.car.cdr; },
+    '+': function(args) { return scheme.fold(function(a, b) { return a + b; }, 0, args); },
+    '-': function(args) { return args.cdr === null ? -args.car :
+        scheme.fold(function(a, b) { return a - b; }, args.car, args.cdr); },
+    '*': function(args) { return scheme.fold(function(a, b) { return a * b; }, 1, args); },
+    '/': function(args) { return args.cdr === null? 1 / args.car :
+        scheme.fold(function(a, b) { return a / b; }, args.car, args.cdr); },
+    '>': function(args) { return false !== scheme.fold(function(a, b) {
+        return a === false ? false : a > b ? b : false; }, Infinity, args); },
+    '<': function(args) { return false !== scheme.fold(function(a, b) {
+        return a === false ? false : a < b ? b : false; }, -Infinity, args); },
+    '>=': function(args) { return false !== scheme.fold(function(a, b) {
+        return a === false ? false : a >= b ? b : false; }, Infinity, args); },
+    '<=': function(args) { return false !== scheme.fold(function(a, b) {
+        return a === false ? false : a <= b ? b : false; }, -Infinity, args); },
+    'expt': scheme.primitive(Math.pow),
+    'log': scheme.primitive(Math.log), 'exp': scheme.primitive(Math.exp),
+    'floor': scheme.primitive(Math.floor), 'ceiling': scheme.primitive(Math.ceil),
+    'random': scheme.primitive(function(n) { return Math.floor(Math.random() * n); }),
 }, null);
 
 scheme.load = function(file, callback) {
