@@ -87,7 +87,7 @@ scheme.eval = function(expr, env) {
                 return new scheme.lambda(params, body, env);
             }
             if (symbol === 'if') {
-                if (scheme.eval(expr.cdr.car, env))
+                if (scheme.eval(expr.cdr.car, env) !== false)
                     return scheme.eval(expr.cdr.cdr.car, env);
                 if (expr.cdr.cdr.cdr !== null)
                     return scheme.eval(expr.cdr.cdr.cdr.car, env);
@@ -136,12 +136,7 @@ scheme.apply = function(proc, args) {
             env[params.car.name] = args.car;
             params = params.cdr; args = args.cdr;
         }
-        var body = proc.body, value = undefined;
-        while (body instanceof scheme.cell) {
-            value = scheme.eval(body.car, new scheme.cell(env, proc.env));
-            body = body.cdr;
-        }
-        return value;
+        return scheme.begin(scheme.listToArray(proc.body), new scheme.cell(env, proc.env));
     }
     throw 'not a procedure: ' + scheme.display(proc);
 }
@@ -229,6 +224,18 @@ scheme.extend = function(o1, o2) {
     return scheme.extend.apply(null, arguments);
 };
 
+scheme.begin = function(array, env, print) {
+    var result;
+    array.forEach(function(expr) {
+        result = scheme.eval(expr, env);
+        if (print) {
+            var output = scheme.display(result);
+            if (output !== undefined) console.log(output);
+        }
+    });
+    return result;
+}
+
 scheme.map = function(func, list) {
     if (list === null) return null;
     return new scheme.cell(func(list.car), scheme.map(func, list.cdr));
@@ -269,6 +276,7 @@ scheme.env = new scheme.cell({
     'eval': function(args) { return scheme.eval(args.car, scheme.env); },
     'load': function(args) { scheme.load(args.car); },
     'display': function(args) { console.log(scheme.display(args.car)); },
+    'begin': scheme.primitive(function() { return arguments[arguments.length-1]; }),
     'boolean?': function(args) { return typeof args.car === 'boolean'; },
     'number?': function(args) { return typeof args.car === 'number'; },
     'string?': function(args) { return typeof args.car === 'string'; },
@@ -277,7 +285,7 @@ scheme.env = new scheme.cell({
     'symbol?': function(args) { return args.car instanceof scheme.symbol; },
     'procedure?': function(args) {
         return args.car instanceof scheme.primitive || args.car instanceof scheme.lambda; },
-    'not': scheme.primitive(function(b) { return !b; }),
+    'not': scheme.primitive(function(b) { return b === false; }),
     'string-append': scheme.plus,
     'equal?': function(args) {
         return scheme.display(args.car) === scheme.display(args.cdr.car); },
@@ -305,13 +313,9 @@ scheme.env = new scheme.cell({
 }, null);
 
 scheme.load = function(file, callback) {
-    require('fs').readFile(file,'utf-8', function(err, data) {
+    require('fs').readFile(file, 'utf-8', function(err, data) {
         if (err) console.error('error loading file: ' + file);
-        else {
-            scheme.reader(data).forEach(function(expr) {
-                scheme.eval(expr, scheme.env);
-            });
-        }
+        else scheme.begin(scheme.reader(data), scheme.env);
         if (callback) callback();
     });
 };
@@ -320,14 +324,8 @@ scheme.load = function(file, callback) {
 scheme.load('lib.scm', function () {
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', function (data) {
-        try {
-            scheme.reader(data).forEach(function(expr) {
-                var result = scheme.eval(expr, scheme.env);
-                var print = scheme.display(result);
-                if (print !== undefined) console.log(print);
-            });
-        }
-        catch (e) { console.error(e); }
+        try { scheme.begin(scheme.reader(data), scheme.env, true); }
+        catch (e) { console.error(JSON.stringify(e)); }
     });
 });
 
