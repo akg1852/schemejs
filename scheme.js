@@ -183,9 +183,11 @@ scheme.transform = function(match, template, mark) {
         if (template.car instanceof scheme.symbol && template.car.name === 'lambda') {
             template = new scheme.cell(template.car, scheme.transform(match, template.cdr, mark));
             var vars = template.cdr.car;
-            if (vars instanceof scheme.cell) vars = scheme.listToArray(vars);
-            else vars = [vars];
-            vars.forEach(function(v) { template = scheme.replace(v, template); });
+            if (vars !== null) {
+                if (vars instanceof scheme.cell) vars = scheme.listToArray(vars);
+                else vars = [vars];
+                vars.forEach(function(v) { template = scheme.replace(v, template); });
+            }
             return template;
         }
         if (template.cdr !== null && template.cdr.car instanceof scheme.symbol &&
