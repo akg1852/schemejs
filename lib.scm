@@ -1,3 +1,16 @@
+(define-syntax let
+  (syntax-rules ()
+    [(let ([var expr] ...) body ...)
+     ((lambda (var ...) body ...) expr ...)]))
+
+(define-syntax or
+  (syntax-rules ()
+    [(or) #f]
+    [(or e) e]
+    [(or e1 e2 ...)
+     (let ([temp e1])
+       (if temp temp (or e2 ...)))]))
+
 (define add1 (lambda (n) (+ n 1)))
 (define sub1 (lambda (n) (- n 1)))
 
