@@ -40,14 +40,15 @@ scheme.reader = function(data) {
             if (token === '#t') return true;
             if (token === '#f') return false;
             if (atom = Number(token), !isNaN(atom)) return atom; // number
-            if ((atom = token.match(/^"([^"]*)"$/)) !== null) return atom[1]; // string
+            if ((atom = token.match(/^"([^"]*)"$/)) !== null)
+                return atom[1].replace(/[\r\n]/g, '').replace(/\\n/g, '\n'); // string
             if ((atom = token.match(/^[\w!%&:<>=@_~$^.*?/+-]+$/)) !== null)
                 return new scheme.symbol(atom[0]); // symbol
             throw 'invalid token: ' + token;
         }
     };
     data = data.replace(/;[^\r\n]*/g, ''); // remove inline comments
-    var tokens = data.match(/(?:\(|\)|\[|\]|'|[^\(\)\[\]'\s]+)/g) || [], exprs = [];
+    var tokens = data.match(/(?:\(|\)|\[|\]|'|"[^"]*"|[^\(\)\[\]'\s]+)/g) || [], exprs = [];
     while (tokens.length) exprs.push(buildAST(tokens));
     return exprs;
 };
@@ -66,12 +67,12 @@ scheme.display = function(expr) {
         if (expr === null) return '()';
         if (expr === true) return '#t';
         if (expr === false) return '#f';
-        if (typeof expr === 'string') return '"' + expr + '"';
         if (expr instanceof scheme.symbol) return expr.name;
         if (typeof expr === 'function') return '<primitive procedure>';
         if (expr instanceof scheme.lambda)
             return scheme.display(new scheme.cell(new scheme.symbol('lambda'),
                 new scheme.cell(expr.params, expr.body)));
+        if (expr instanceof scheme.syntax) return '<syntax transformer>';
         return expr;
     }
 }
@@ -275,7 +276,7 @@ scheme.env = new scheme.cell({
     },
     'eval': function(args) { return scheme.eval(args.car, scheme.env); },
     'load': function(args) { scheme.load(args.car); },
-    'display': function(args) { console.log(scheme.display(args.car)); },
+    'display': function(args) { process.stdout.write(scheme.display(args.car).toString()); },
     'begin': scheme.primitive(function() { return arguments[arguments.length-1]; }),
     'boolean?': function(args) { return typeof args.car === 'boolean'; },
     'number?': function(args) { return typeof args.car === 'number'; },
@@ -325,7 +326,7 @@ scheme.load('lib.scm', function () {
     process.stdin.setEncoding('utf8');
     process.stdin.on('data', function (data) {
         try { scheme.begin(scheme.reader(data), scheme.env, true); }
-        catch (e) { console.error(JSON.stringify(e)); }
+        catch (e) { console.error(e); }
     });
 });
 
