@@ -109,7 +109,11 @@ scheme.eval = function(expr, env) {
                 keywords = scheme.listToArray(car.keywords).map(function(k) { return k.name; });
             while (rules !== null) {
                 var match = scheme.match(input, rules.car.car.cdr, keywords);
-                if (match) return scheme.eval(scheme.transform(match, rules.car.cdr.car, mark), car.env);
+                if (match) {
+                    var transform = scheme.transform(match, rules.car.cdr.car, mark);
+                    if (transform === undefined) throw 'error in syntax template: ' + expr.car.name;
+                    return scheme.eval(transform, car.env);
+                }
                 rules = rules.cdr;
             }
             throw expr.car.name + ': no syntax pattern matched the input';
@@ -173,7 +177,6 @@ scheme.match = function(input, pattern, keywords) {
 };
 
 scheme.transform = function(match, template, mark) {
-    if (template === null) return null;
     if (template instanceof scheme.symbol) {
         var values = match[template.name];
         if (values !== undefined) return values.shift();
