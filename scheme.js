@@ -108,7 +108,7 @@ scheme.eval = function(expr, env) {
             var input = expr.cdr, rules = car.rules, mark = scheme.gen(),
                 keywords = scheme.listToArray(car.keywords).map(function(k) { return k.name; });
             while (rules !== null) {
-                var match = scheme.match(input, rules.car.car.cdr, keywords);
+                var match = scheme.match(input, rules.car.car.cdr, keywords, {});
                 if (match) {
                     var transform = scheme.transform(match, rules.car.cdr.car, mark);
                     if (transform === undefined) throw 'error in syntax template: ' + expr.car.name;
@@ -146,41 +146,50 @@ scheme.apply = function(proc, args) {
     throw 'not a procedure: ' + scheme.display(proc);
 }
 
-scheme.match = function(input, pattern, keywords) {
-    var match = {};
+scheme.noInput = new scheme.cell();  // used to traverse pattern
+scheme.noInput.car = scheme.noInput; // when ellipsis is matched
+scheme.noInput.cdr = scheme.noInput; // zero times
+
+scheme.match = function(input, pattern, keywords, match, isEllipsis) {
     if (pattern instanceof scheme.symbol) {
         if (keywords.indexOf(pattern.name) !== -1)
             return (input instanceof scheme.symbol
                     && pattern.name === input.name) ? match : undefined;
-        match[pattern.name] = [input];
+        if (isEllipsis) {
+            if (!(match[pattern.name] instanceof Array)) match[pattern.name] = [];
+            if (input !== scheme.noInput) match[pattern.name].push(input);
+        }
+        else match[pattern.name] = input;
         return match;
     }
     if (pattern instanceof scheme.cell) {
-        if (!(input instanceof scheme.cell)) return undefined;
         if (pattern.cdr !== null && pattern.cdr.car instanceof scheme.symbol &&
                 pattern.cdr.car.name === '...') {
-            var ellipsis = scheme.listToArray(input)
-                .map(function(i) { return scheme.match(i, pattern.car, keywords); });
-            if (ellipsis.indexOf(undefined) === -1) return scheme.extend.apply(null, ellipsis);
-            return undefined;
-        }
-        var heads = scheme.match(input.car, pattern.car, keywords);
-        var tails = heads && scheme.match(input.cdr, pattern.cdr, keywords);
-        if (tails) {
-            scheme.extend(match, heads, tails);
+            if (input === null) input = scheme.noInput;
+            while (input instanceof scheme.cell) {
+                var submatch = scheme.match(input.car, pattern.car, keywords, match, true);
+                if (submatch === undefined) return undefined;
+                if (input === scheme.noInput) break;
+                match = submatch;
+                input = input.cdr;
+            }
             return match;
         }
-        return undefined;
+        if (!(input instanceof scheme.cell)) return undefined;
+        match = scheme.match(input.car, pattern.car, keywords, match, isEllipsis);
+        match = match && scheme.match(input.cdr, pattern.cdr, keywords, match, isEllipsis);
+        return match;
     }
-    if (pattern === input) return match;
+    if (input === scheme.noInput || pattern === input) return match;
     return undefined;
 };
 
 scheme.transform = function(match, template, mark) {
     if (template instanceof scheme.symbol) {
-        var values = match[template.name];
-        if (values !== undefined) return values.shift();
-        return new scheme.symbol(template.name, mark);
+        var value = match[template.name];
+        if (value === undefined) return new scheme.symbol(template.name, mark);
+        if (value instanceof Array) return value.shift();
+        return value;
     }
     if (template instanceof scheme.cell) {
         if (template.car instanceof scheme.symbol && template.car.name === 'lambda') {
@@ -219,15 +228,6 @@ scheme.replace = function(variable, template) {
         return new scheme.cell(scheme.replace(variable, template.car),
                                scheme.replace(variable, template.cdr));
     return template;
-};
-
-scheme.extend = function(o1, o2) {
-    if (o2 === undefined) return o1;
-    for (var i in o2) {
-        o1[i] = (o1[i] || []).concat(o2[i]);
-    }
-    [].splice.call(arguments, 1, 1)
-    return scheme.extend.apply(null, arguments);
 };
 
 scheme.begin = function(array, env, print) {
