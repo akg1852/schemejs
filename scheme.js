@@ -316,6 +316,7 @@ scheme.env = new scheme.cell({
     'log': scheme.primitive(Math.log), 'exp': scheme.primitive(Math.exp),
     'floor': scheme.primitive(Math.floor), 'ceiling': scheme.primitive(Math.ceil),
     'random': scheme.primitive(function(n) { return Math.floor(Math.random() * n); }),
+    'remainder': scheme.primitive(function(a, b) { return a % b; }),
 }, null);
 
 scheme.load = function(file, callback) {
@@ -334,4 +335,3 @@ scheme.load('lib.scm', function () {
         catch (e) { console.error(e); }
     });
 });
-

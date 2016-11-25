@@ -11,12 +11,33 @@
      (let ([temp e1])
        (if temp temp (or e2 ...)))]))
 
+(define-syntax and
+  (syntax-rules ()
+    [(and) #t]
+    [(and e) e]
+    [(and e1 e2 ...)
+     (let ([temp e1])
+       (if (not temp) #t (and e2 ...)))]))
+
+(define-syntax cond
+  (syntax-rules (else)
+    [(cond (else e1 e2 ...))
+     (begin e1 e2 ...)]
+    [(cond (e0 e1 e2 ...))
+     (if e0 (begin e1 e2 ...))]
+    [(cond (e0 e1 e2 ...) c1 c2 ...)
+     (if e0 (begin e1 e2 ...)
+            (cond c1 c2 ...))]))
+
 (define newline
   (lambda ()
     (display "\n")))
 
 (define add1 (lambda (n) (+ n 1)))
 (define sub1 (lambda (n) (- n 1)))
+(define zero? (lambda (n) (equal? 0 n)))
+(define even? (lambda (n) (zero? (remainder n 2))))
+(define odd? (lambda (n) (not (even? n))))
 
 (define list (lambda ls ls))
 
